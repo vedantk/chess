@@ -49,18 +49,18 @@ def move_piece(board, old, new):
 	set_piece(board, old, empty)
 
 def is_empty(board, pos):
-	return get_piece(board, pos) == empty
+	return in_bounds(pos) and get_piece(board, pos) == empty
 
 def pawn_moves(board, pos, color):
 	delta = 1 if color == 'black' else -1
 	advance = pos + (delta, 0)
-	if in_bounds(advance) and is_empty(board, advance):
+	if is_empty(board, advance):
 		yield advance
 	if pos.row in (1, 6):
 		double = pos + (2 * delta, 0)
 		if is_empty(board, double):
 			yield double
-	attack = lambda col: pos + (delta, 0)
+	attack = lambda col: pos + (delta, col)
 	is_atk = lambda atk: get_piece(atk).player not in (color, empty.player)
 	for atk in filter(is_atk, (attack(col - 1), attack(col + 1))):
 		yield atk
@@ -97,22 +97,22 @@ def delta_moves(board, pos, color, deltas):
 				diffs[k] = False
 		probe += 1
 
-moves = {
-	'p': pawn_moves,
-	'r': rook_moves,
-	'k': knight_moves,
-	'b': bishop_moves,
-	'Q': queen_moves,
-	'K': king_moves,
-}
-
 def find_moves(board, player):
+	moves = {
+		'p': pawn_moves,
+		'r': rook_moves,
+		'k': knight_moves,
+		'b': bishop_moves,
+		'Q': queen_moves,
+		'K': king_moves,
+	}
 	for row, k in enumerate(board):
 		for elt, j in enumerate(row):
 			if elt.player == player:
+				pos = posn(k, j)
 				finder = moves[elt.type]
-				yield finder(board, posn(k, j), elt.player)
-
+				gen = finder(board, pos, elt.player)
+				yield ((pos, next(gen)) for k in gen)
 
 def main():
 	board = new_board()
