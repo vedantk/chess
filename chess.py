@@ -36,9 +36,7 @@ def in_bounds(pos):
         return (0 <= pos.row < 8) and (0 <= pos.col < 8)
 
 def get_piece(board, pos):
-	if in_bounds(pos):
-		return board[pos.row][pos.col]
-	return empty
+	return board[pos.row][pos.col] if in_bounds(pos) else empty
 
 def set_piece(board, pos, elt):
 	board[pos.row][pos.col] = elt
@@ -78,10 +76,15 @@ def queen_moves(board, pos, color):
 	gens = map(lambda fn: apply(fn, arg), (rook_moves, bishop_moves))
 	return itertools.chain(gens)
 
-def delta_moves(board, pos, color, deltas):
+def knight_moves(board, pos, color):
+	delta = (2, -1), (2, 1), (-2, -1), (-2, 1), \
+		(1, 2), (-1, 2), (1, -2), (-1, -2)
+	return delta_moves(board, pos, color, delta, max_probe=1)
+
+def delta_moves(board, pos, color, deltas, max_probe=False):
 	probe = 1
 	diffs = [True] * len(deltas)
-	while any(diffs):
+	while any(diffs) and (not(max_probe) or probe <= max_probe):
 		for k, (rp, cp) in enumerate(deltas):
 			if not diffs[k]:
 				continue
