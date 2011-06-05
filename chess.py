@@ -32,8 +32,13 @@ def print_board(board):
 	for row in board:
 		print(' '.join([elt.type for elt in row]))
 
+def in_bounds(pos):
+        return (0 <= pos.row < 8) and (0 <= pos.col < 8)
+
 def get_piece(board, pos):
-	return board[pos.row][pos.col]
+	if in_bounds(pos):
+		return board[pos.row][pos.col]
+	return empty
 
 def set_piece(board, pos, elt):
 	board[pos.row][pos.col] = elt
@@ -42,9 +47,6 @@ def move_piece(board, old, new):
 	orig = get_piece(board, old)
 	set_piece(board, new, orig)
 	set_piece(board, old, empty)
-
-def in_bounds(pos):
-	return (0 <= pos.row < 8) and (0 <= pos.col < 8)
 
 def is_empty(board, pos):
 	return get_piece(board, pos) == empty
@@ -59,7 +61,7 @@ def pawn_moves(board, pos, color):
 		if is_empty(board, double):
 			yield double
 	attack = lambda col: pos + (delta, 0)
-	is_atk = lambda atk: in_bounds(atk) and not is_empty(board, atk)
+	is_atk = lambda atk: get_piece(atk).player not in (color, empty.player)
 	for atk in filter(is_atk, (attack(col - 1), attack(col + 1))):
 		yield atk
 
