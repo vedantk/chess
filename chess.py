@@ -47,13 +47,20 @@ def set_piece(board, pos, elt):
 	board[pos.row][pos.col] = elt
 
 kings = {'white': posn(7, 4), 'black': posn(0, 4)}
+draws = {'long-draw': 0, 'three-draw': # need a list that's only ever three elts large
 
-def move_piece(board, old, new):
+def move_piece(board, old, new, fake=False):
 	orig = get_piece(board, old)
+	dest = get_piece(board, new)
 	set_piece(board, new, orig)
 	set_piece(board, old, empty)
-	if orig.type == 'K':
-		kings[orig.color] = new
+	if not fake:
+		if orig.type == 'K':
+			kings[orig.color] = new
+		if dest != empty or orig.type == 'p':
+			draws['long-draw'] = 0
+		if dest == empty:
+			draws['long-draw'] += 1
 
 def is_empty(board, pos):
 	return get_piece(board, pos) == empty
@@ -135,9 +142,9 @@ def potential_moves(board, color):
 		def removes_check(pair):
 			old, new = pair
 			orig = get_piece(board, new)
-			move_piece(board, old, new)
+			move_piece(board, old, new, fake=True)
 			test = not(in_check(board, color))
-			move_piece(board, new, old)
+			move_piece(board, new, old, fake=True)
 			set_piece(board, new, orig)
 			return test
 		print("{0} is in check!".format(color))
