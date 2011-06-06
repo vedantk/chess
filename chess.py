@@ -101,16 +101,23 @@ def find_moves(board, color):
 				gen = moves[elt.type](board, pos, elt.color)
 				yield ((pos, potential) for potential in gen)
 
-def new_game():
-	board = new_board()
-	print_board(board)
-	mvgen = find_moves(board, 'white')
-	for gen in mvgen:
+def best_move(board, color):
+	move_engine = find_moves(board, color)
+	for gen in move_engine:
 		for old, new in gen:
-			b = new_board()
-			move_piece(b, old, new)
-			print_board(b)
-			raw_input(">> ")
+			return old, new # return the first move we find
+	raise Exception("No moves possible for player.")
+
+def new_game():
+	color = 'white'
+	board = new_board()
+	while True:
+		print(">> {0}'s turn...".format(color))
+		print_board(board)
+		old, new = best_move(board, color)
+		move_piece(board, old, new)
+		color = 'black' if color == 'white' else 'white'
+		input("[Hit Enter]")
 
 new_game()
 
