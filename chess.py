@@ -1,14 +1,25 @@
 #!/usr/bin/pypy
 
+'''
+Todo:
+>	Castling
+>	Pawn => opponent's back row conversion
+>	Game time limit
+>	Cycle detection (same move sequences result in a draw)
+'''
+
 from collections import namedtuple
 
 piece = namedtuple('Piece', ['type', 'color'])
 empty = piece(type=' ', color='white-or-black')
+opposite = lambda color: 'black' if color == 'white' else 'white'
 
 class posn(namedtuple('Posn', ['row', 'col'])):
 	def __add__(self, that):
 		row, col = that
 		return posn(self.row + row, self.col + col)
+	def __eq__(self, that):
+		return self.row == that.row and self.col == that.col
 
 def new_board():
 	front = ['p'] * 8
@@ -20,8 +31,10 @@ def new_board():
 			if k < 2 or k > 5 else [empty] * 8 for k in range(8)]
 
 def print_board(board):
+	red = lambda s: '\033[91m' + s + '\033[0m'
+	show = lambda p: p.type if p.color == 'white' else red(p.type)
 	for row in board:
-		print(' '.join([elt.type for elt in row]))
+		print(' '.join([show(elt) for elt in row]))
 	print("-" * 40)
 
 def in_bounds(pos):
@@ -33,28 +46,17 @@ def get_piece(board, pos):
 def set_piece(board, pos, elt):
 	board[pos.row][pos.col] = elt
 
+kings = {'white': posn(7, 4), 'black': posn(0, 4)}
+
 def move_piece(board, old, new):
 	orig = get_piece(board, old)
 	set_piece(board, new, orig)
 	set_piece(board, old, empty)
+	if orig.type == 'K':
+		kings[orig.color] = new
 
 def is_empty(board, pos):
 	return get_piece(board, pos) == empty
-
-def pawn_moves(board, pos, color):
-	delta = 1 if color == 'black' else -1
-	advance = pos + (delta, 0)
-	if in_bounds(advance) and is_empty(board, advance):
-		yield advance
-	if pos.row in (1, 6):
-		double = pos + (2 * delta, 0)
-		if is_empty(board, double):
-			yield double
-	safe = color, empty.color
-	attacks = pos + (delta, -1), pos + (delta, 1)
-	for atk in attacks:
-		if in_bounds(atk) and get_piece(board, atk).color not in safe:
-			yield atk
 
 def delta_moves(board, pos, color, deltas, max_probe):
 	probe = 1
@@ -78,8 +80,23 @@ def move_finder(deltas, max_probe=False):
 	return lambda board, pos, color: \
 		delta_moves(board, pos, color, deltas, max_probe)
 
-rook_deltas = (0, -1), (-1, 0), (0, 1), (1, 0) # l, u, r, d
-bishop_deltas = (-1, -1), (-1, 1), (1, 1), (1, -1) # ul, ur, dr, dl
+def pawn_moves(board, pos, color):
+	delta = 1 if color == 'black' else -1
+	advance = pos + (delta, 0)
+	if in_bounds(advance) and is_empty(board, advance):
+		yield advance
+	if pos.row in (1, 6):
+		double = pos + (2 * delta, 0)
+		if is_empty(board, double):
+			yield double
+	safe = color, empty.color
+	attacks = pos + (delta, -1), pos + (delta, 1)
+	for atk in attacks:
+		if in_bounds(atk) and get_piece(board, atk).color not in safe:
+			yield atk
+
+rook_deltas = (0, -1), (-1, 0), (0, 1), (1, 0)
+bishop_deltas = (-1, -1), (-1, 1), (1, 1), (1, -1)
 queen_deltas = rook_deltas + bishop_deltas
 knight_deltas = (2, -1), (2, 1), (-2, -1), (-2, 1), \
 				(1, 2), (-1, 2), (1, -2), (-1, -2)
@@ -93,31 +110,62 @@ moves = {
 	'K': move_finder(queen_deltas, max_probe=1),
 }
 
-def find_moves(board, color):
+def all_moves(board, color):
+	pool = []
 	for k, row in enumerate(board):
 		for j, elt in enumerate(row):
 			if elt.color == color:
 				pos = posn(k, j)
 				gen = moves[elt.type](board, pos, elt.color)
-				yield ((pos, potential) for potential in gen)
+				pool.extend([(pos, new) for new in gen if new])
+	return pool
+
+def in_check(board, color):
+	my_king = kings[color]
+	your = all_moves(board, opposite(color))
+	for _, new in your:
+		if new == my_king:
+			return True
+	return False
+
+def potential_moves(board, color):
+	my = all_moves(board, color)
+	check = in_check(board, color)
+	if check:
+		def removes_check(pair):
+			old, new = pair
+			orig = get_piece(board, new)
+			move_piece(board, old, new)
+			test = not(in_check(board, color))
+			move_piece(board, new, old)
+			set_piece(board, new, orig)
+			return test
+		print("{0} is in check!".format(color))
+		my = list(filter(removes_check, my))
+	if not len(my):
+		print("{0} loses...".format(color) if check else "Draw.")
+		return check
+	return my
 
 def best_move(board, color):
-	move_engine = find_moves(board, color)
-	for gen in move_engine:
-		for old, new in gen:
-			return old, new # return the first move we find
-	raise Exception("No moves possible for player.")
+	pool = potential_moves(board, color)
+	if isinstance(pool, bool):
+		raise Exception("Game over.")
+	for old, new in pool:
+		return old, new
 
 def new_game():
 	color = 'white'
 	board = new_board()
 	while True:
-		print(">> {0}'s turn...".format(color))
+		print(">> {0}'s turn".format(color))
 		print_board(board)
-		old, new = best_move(board, color)
-		move_piece(board, old, new)
-		color = 'black' if color == 'white' else 'white'
-		input("[Hit Enter]")
+		try:
+			old, new = best_move(board, color)
+			move_piece(board, old, new)
+			color = opposite(color)
+		except:
+			return
 
 new_game()
 
