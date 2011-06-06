@@ -3,12 +3,12 @@
 from collections import namedtuple
 
 piece = namedtuple('Piece', ['type', 'color'])
-empty = piece(type=' ', color=' ')
+empty = piece(type=' ', color='white-or-black')
 
-posn_init = namedtuple('Posn', ['row', 'col'])
-class posn(posn_init):
+class posn(namedtuple('Posn', ['row', 'col'])):
 	def __add__(self, that):
-		return posn(self.row + that[0], self.col + that[1])
+		row, col = that
+		return posn(self.row + row, self.col + col)
 
 def new_board():
 	front = ['p'] * 8
@@ -16,17 +16,16 @@ def new_board():
 	def make_row(template, is_black):
 		color = 'black' if is_black else 'white'
 		return [piece(type=elt, color=color) for elt in template]
-	board = [make_row(back, True), make_row(front, True)]
-	board.extend(([empty] * 8 for k in range(4)))
-	board.extend([make_row(front, False), make_row(back, False)])
-	return board
+	return [make_row(back if k in (0, 7) else front, k < 2)
+			if k < 2 or k > 5 else [empty] * 8 for k in range(8)]
 
 def print_board(board):
 	for row in board:
 		print(' '.join([elt.type for elt in row]))
+	print("-" * 40)
 
 def in_bounds(pos):
-        return (0 <= pos.row < 8) and (0 <= pos.col < 8)
+	return (0 <= pos.row < 8) and (0 <= pos.col < 8)
 
 def get_piece(board, pos):
 	return board[pos.row][pos.col]
@@ -67,11 +66,10 @@ def delta_moves(board, pos, color, deltas, max_probe):
 			loc = pos + (rp * probe, cp * probe)
 			if in_bounds(loc):
 				occupant = get_piece(board, loc)
+				if occupant == empty or occupant.color != color:
+					yield loc
 				if occupant != empty:
 					may_probe[k] = False
-				elif occupant.color == color:
-					continue
-				yield loc
 			else:
 				may_probe[k] = False
 		probe += 1
@@ -101,14 +99,18 @@ def find_moves(board, color):
 			if elt.color == color:
 				pos = posn(k, j)
 				gen = moves[elt.type](board, pos, elt.color)
-				yield ((pos, next(gen)) for i in gen)
+				yield ((pos, potential) for potential in gen)
 
 def new_game():
 	board = new_board()
 	print_board(board)
 	mvgen = find_moves(board, 'white')
 	for gen in mvgen:
-		print([val for val in gen])
+		for old, new in gen:
+			b = new_board()
+			move_piece(b, old, new)
+			print_board(b)
+			raw_input(">> ")
 
 new_game()
 
