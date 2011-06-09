@@ -5,6 +5,7 @@ Todo:
 >	Castling
 '''
 
+import copy
 import random
 from collections import namedtuple, deque
 
@@ -30,7 +31,7 @@ class board:
 		self.mat = [make_row(back if k in (0, 7) else front, k < 2) \
 			if k < 2 or k > 5 else [empty] * 8 for k in range(8)]
 		self.kings = {'white': posn(7, 4), 'black': posn(0, 4)}
-		self.draws = {'long': 0, 'three': deque([0, 0, 0], maxlen=3)}
+		self.draws = {'long': 0, 'three': deque(range(6), maxlen=6)}
 
 	def __hash__(self):
 		h = 104729
@@ -53,20 +54,23 @@ class board:
 		self.mat[pos.row][pos.col] = elt
 
 	def is_empty(self, pos):
-		return self.__getitem__(pos) == empty
+		return self[pos] == empty
 
 	def move_piece(self, old, new):
-		orig = self.__getitem__(old)
-		dest = self.__getitem__(new)
-		self.__setitem__(new, orig)
-		self.__setitem__(old, empty)
+		orig = self[old]
+		dest = self[new]
+		self[new] = orig
+		self[old] = empty
 		if orig.type == 'K':
+			# Keep track of where kings are for quick check detection.
 			self.kings[orig.color] = new
 		if orig.type == 'p':
+			# Promote pawns to queens when they reach the final row.
 			end = 0 if orig.color == 'white' else 7
 			if new.row == end:
 				orig.type = 'Q'
 		if dest != empty or orig.type == 'p':
+			# If a capture or pawn advance occurs, delay a long draw.
 			self.draws['long'] = 0
 		else:
 			self.draws['long'] += 1
@@ -74,8 +78,29 @@ class board:
 				return 'long'
 		deq = draws['three']
 		deq.append(hash(self))
-		if deq[0] == deq[1] == deq[2]:
+		if deq[0] == deq[2] == deq[4] or deq[1] == deq[3] == deq[5]:
+			# If three previous states were the same, call a draw.
 			return 'three'
+
+	def all_moves(self, color):
+		# Find all possible moves available to <color>.
+		pool = []
+		for k, row in enumerate(self.mat):
+			for j, soldier in enumerate(row):
+				if soldier.color == color:
+					pos = posn(k, j)
+					gen = moves[soldier.type](self, pos, soldier.color)
+					pool.extend([(pos, new) for new in gen if new])
+		return pool
+
+	def in_check(self, color):
+		# Determine if <color> is in check.
+		my_king = self.kings[color]
+		your = self.all_moves(opposite(color))
+		for _, new in your:
+			if new == my_king:
+				return True
+		return False
 
 def in_bounds(pos):
 	return (0 <= pos.row < 8) and (0 <= pos.col < 8)
@@ -132,36 +157,14 @@ moves = {
 	'K': move_finder(queen_deltas, max_probe=1),
 }
 
-def all_moves(board, color):
-	pool = []
-	for k, row in enumerate(board):
-		for j, elt in enumerate(row):
-			if elt.color == color:
-				pos = posn(k, j)
-				gen = moves[elt.type](board, pos, elt.color)
-				pool.extend([(pos, new) for new in gen if new])
-	return pool
-
-def in_check(board, color):
-	my_king = kings[color]
-	your = all_moves(board, opposite(color))
-	for _, new in your:
-		if new == my_king:
-			return True
-	return False
-
 def potential_moves(board, color):
-	my = all_moves(board, color)
-	check = in_check(board, color)
-	def free_from_check(pair):
+	def available_move(pair):
 		old, new = pair
-		orig = board[new]
-		board.move_piece(old, new, fake=True)
-		test = in_check(board, color)
-		board.move_piece(new, old, fake=True)
-		board[new] = orig
-		return not(test)
-	my = list(filter(free_from_check, my))
+		hypo = copy.deepcopy(board)
+		hypo.move_piece(old, new)
+		return not(hypo.in_check(color))
+	check = board.in_check(color)
+	my = list(filter(available_move, board.all_moves(color)))
 	if check:
 		print("{0} is in check!".format(color))
 	if not len(my):
@@ -177,10 +180,10 @@ def best_move(board, color):
 
 def new_game():
 	color = 'white'
-	board = new_board()
+	game = board()
 	while True:
-		print(">> {0}'s turn".format(color))
-		print_board(board)
+		print(board)
+		print("^^^ {0}'s turn".format(color))
 		try:
 			old, new = best_move(board, color)
 			board.move_piece(old, new)
