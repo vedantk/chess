@@ -4,6 +4,7 @@
 Todo:
 >	Castling
 >	Pawn => opponent's back row conversion
+>	refactor board and friends into a class
 '''
 
 import random
@@ -45,6 +46,13 @@ def get_piece(board, pos):
 def set_piece(board, pos, elt):
 	board[pos.row][pos.col] = elt
 
+def hash_board(board):
+	h = 104729
+	for j, row in enumerate(board):
+		for k, elt in enumerate(row):
+			h ^= hash((elt.type, elt.color, j ** 3, k ** 5))
+	return h
+
 kings = {'white': posn(7, 4), 'black': posn(0, 4)}
 draws = {'long-draw': 0, 'three-draw': deque([0, 0, 0], maxlen=3)}
 
@@ -53,9 +61,9 @@ def move_piece(board, old, new, fake=False):
 	dest = get_piece(board, new)
 	set_piece(board, new, orig)
 	set_piece(board, old, empty)
+	if orig.type == 'K':
+		kings[orig.color] = new
 	if not fake:
-		if orig.type == 'K':
-			kings[orig.color] = new
 		if dest != empty or orig.type == 'p':
 			draws['long-draw'] = 0
 		if dest == empty:
@@ -63,8 +71,7 @@ def move_piece(board, old, new, fake=False):
 			if draws['long-draw'] >= 50:
 				raise Exception("Long Draw")
 		deq = draws['three-draw']
-		deq.append(hash(str(board)))
-		deq.popleft()
+		deq.append(hash_board(board))
 		if deq[0] == deq[1] == deq[2]:
 			raise Exception("Three-Move Draw")
 
@@ -144,17 +151,17 @@ def in_check(board, color):
 def potential_moves(board, color):
 	my = all_moves(board, color)
 	check = in_check(board, color)
+	def free_from_check(pair):
+		old, new = pair
+		orig = get_piece(board, new)
+		move_piece(board, old, new, fake=True)
+		test = in_check(board, color)
+		move_piece(board, new, old, fake=True)
+		set_piece(board, new, orig)
+		return not(test)
+	my = list(filter(free_from_check, my))
 	if check:
-		def removes_check(pair):
-			old, new = pair
-			orig = get_piece(board, new)
-			move_piece(board, old, new, fake=True)
-			test = not(in_check(board, color))
-			move_piece(board, new, old, fake=True)
-			set_piece(board, new, orig)
-			return test
 		print("{0} is in check!".format(color))
-		my = list(filter(removes_check, my))
 	if not len(my):
 		print("{0} loses...".format(color) if check else "Draw.")
 		return check
@@ -172,13 +179,13 @@ def new_game():
 	while True:
 		print(">> {0}'s turn".format(color))
 		print_board(board)
-		#try:
-		old, new = best_move(board, color)
-		move_piece(board, old, new)
-		color = opposite(color)
-		#except Exception, msg:
-		#	print(msg)
-		#	return
+		try:
+			old, new = best_move(board, color)
+			move_piece(board, old, new)
+			color = opposite(color)
+		except Exception, msg:
+			print(msg)
+			return
 
 new_game()
 
