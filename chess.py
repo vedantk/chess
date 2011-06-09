@@ -5,6 +5,29 @@ Todo:
 >	Castling
 >	Pawn => opponent's back row conversion
 >	refactor board and friends into a class
+		if you do this, you can get rid of the hacky fake=True stuff
+		this is really needed when doing pawn upgrades
+		if you're scouting possible moves and a pawn is pushed to the
+		opponent's baseline (with fake=True), then you ought to take
+		the attack benefits of the pawn's transformation into account
+		BUT if you convert the pawn, there is no clean way to convert
+		it back when you go into fake=False mode
+		you have to deepcopy each time
+
+class board:
+	def __init__(self):
+
+
+	def get_piece(self, pos):
+
+	def set_piece(self, pos):
+
+	def move_piece(self, old, new):
+
+class game:
+	def __init__(self):
+
+	def opposite_color(self, color):
 '''
 
 import random
@@ -50,7 +73,7 @@ def hash_board(board):
 	h = 104729
 	for j, row in enumerate(board):
 		for k, elt in enumerate(row):
-			h ^= hash((elt.type, elt.color, j ** 3, k ** 5))
+			h ^= hash((elt.type, elt.color, j, k))
 	return h
 
 kings = {'white': posn(7, 4), 'black': posn(0, 4)}
