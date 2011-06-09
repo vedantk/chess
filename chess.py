@@ -3,23 +3,7 @@
 '''
 Todo:
 >	Castling
->	Pawn => opponent's back row conversion
->	refactor board and friends into a class
-		if you do this, you can get rid of the hacky fake=True stuff
-		this is really needed when doing pawn upgrades
-		if you're scouting possible moves and a pawn is pushed to the
-		opponent's baseline (with fake=True), then you ought to take
-		the attack benefits of the pawn's transformation into account
-		BUT if you convert the pawn, there is no clean way to convert
-		it back when you go into fake=False mode
-		you have to deepcopy each time
 '''
-
-class game:
-	def __init__(self):
-
-
-	def opposite_color(self, color):
 
 import random
 from collections import namedtuple, deque
@@ -32,6 +16,7 @@ class posn(namedtuple('Posn', ['row', 'col'])):
 	def __add__(self, that):
 		row, col = that
 		return posn(self.row + row, self.col + col)
+
 	def __eq__(self, that):
 		return self.row == that.row and self.col == that.col
 
@@ -61,20 +46,20 @@ class board:
 			print(' '.join([show(elt) for elt in row]))
 		print("-" * 40)
 
-	def get_piece(self, pos):
+	def __getitem__(self, pos):
 		return self.mat[pos.row][pos.col]
 
-	def set_piece(self, pos, elt):
+	def __setitem__(self, pos, elt):
 		self.mat[pos.row][pos.col] = elt
 
 	def is_empty(self, pos):
-		return self.get_piece(pos) == empty
+		return self.__getitem__(pos) == empty
 
 	def move_piece(self, old, new):
-		orig = self.get_piece(old)
-		dest = self.get_piece(new)
-		self.set_piece(new, orig)
-		self.set_piece(old, empty)
+		orig = self.__getitem__(old)
+		dest = self.__getitem__(new)
+		self.__setitem__(new, orig)
+		self.__setitem__(old, empty)
 		if orig.type == 'K':
 			self.kings[orig.color] = new
 		if orig.type == 'p':
@@ -83,7 +68,7 @@ class board:
 				orig.type = 'Q'
 		if dest != empty or orig.type == 'p':
 			self.draws['long'] = 0
-		if dest == empty:
+		else:
 			self.draws['long'] += 1
 			if draws['long'] >= 50:
 				return 'long'
@@ -104,7 +89,7 @@ def delta_moves(board, pos, color, deltas, max_probe):
 				continue
 			loc = pos + (rp * probe, cp * probe)
 			if in_bounds(loc):
-				occupant = get_piece(board, loc)
+				occupant = board[loc]
 				if occupant == empty or occupant.color != color:
 					yield loc
 				if occupant != empty:
@@ -120,16 +105,16 @@ def move_finder(deltas, max_probe=False):
 def pawn_moves(board, pos, color):
 	delta, dbl = (1, 1) if color == 'black' else (-1, 6)
 	advance = pos + (delta, 0)
-	if in_bounds(advance) and is_empty(board, advance):
+	if in_bounds(advance) and board.is_empty(advance):
 		yield advance
 	if pos.row == dbl:
 		double = pos + (2 * delta, 0)
-		if is_empty(board, double):
+		if board.is_empty(double):
 			yield double
 	safe = color, empty.color
 	attacks = pos + (delta, -1), pos + (delta, 1)
 	for atk in attacks:
-		if in_bounds(atk) and get_piece(board, atk).color not in safe:
+		if in_bounds(atk) and board[atk].color not in safe:
 			yield atk
 
 rook_deltas = (0, -1), (-1, 0), (0, 1), (1, 0)
@@ -170,11 +155,11 @@ def potential_moves(board, color):
 	check = in_check(board, color)
 	def free_from_check(pair):
 		old, new = pair
-		orig = get_piece(board, new)
-		move_piece(board, old, new, fake=True)
+		orig = board[new]
+		board.move_piece(old, new, fake=True)
 		test = in_check(board, color)
-		move_piece(board, new, old, fake=True)
-		set_piece(board, new, orig)
+		board.move_piece(new, old, fake=True)
+		board[new] = orig
 		return not(test)
 	my = list(filter(free_from_check, my))
 	if check:
@@ -198,7 +183,7 @@ def new_game():
 		print_board(board)
 		try:
 			old, new = best_move(board, color)
-			move_piece(board, old, new)
+			board.move_piece(old, new)
 			color = opposite(color)
 		except Exception, msg:
 			print(msg)
