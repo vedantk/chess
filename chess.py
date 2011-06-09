@@ -4,11 +4,10 @@
 Todo:
 >	Castling
 >	Pawn => opponent's back row conversion
->	Game time limit
->	Cycle detection (same move sequences result in a draw)
 '''
 
-from collections import namedtuple
+import random
+from collections import namedtuple, deque
 
 piece = namedtuple('Piece', ['type', 'color'])
 empty = piece(type=' ', color='white-or-black')
@@ -47,7 +46,7 @@ def set_piece(board, pos, elt):
 	board[pos.row][pos.col] = elt
 
 kings = {'white': posn(7, 4), 'black': posn(0, 4)}
-draws = {'long-draw': 0, 'three-draw': # need a list that's only ever three elts large
+draws = {'long-draw': 0, 'three-draw': deque([0, 0, 0], maxlen=3)}
 
 def move_piece(board, old, new, fake=False):
 	orig = get_piece(board, old)
@@ -61,6 +60,13 @@ def move_piece(board, old, new, fake=False):
 			draws['long-draw'] = 0
 		if dest == empty:
 			draws['long-draw'] += 1
+			if draws['long-draw'] >= 50:
+				raise Exception("Long Draw")
+		deq = draws['three-draw']
+		deq.append(hash(str(board)))
+		deq.popleft()
+		if deq[0] == deq[1] == deq[2]:
+			raise Exception("Three-Move Draw")
 
 def is_empty(board, pos):
 	return get_piece(board, pos) == empty
@@ -88,11 +94,11 @@ def move_finder(deltas, max_probe=False):
 		delta_moves(board, pos, color, deltas, max_probe)
 
 def pawn_moves(board, pos, color):
-	delta = 1 if color == 'black' else -1
+	delta, dbl_row = (1, 1) if color == 'black' else (-1, 6)
 	advance = pos + (delta, 0)
 	if in_bounds(advance) and is_empty(board, advance):
 		yield advance
-	if pos.row in (1, 6):
+	if pos.row == dbl_row:
 		double = pos + (2 * delta, 0)
 		if is_empty(board, double):
 			yield double
@@ -158,8 +164,7 @@ def best_move(board, color):
 	pool = potential_moves(board, color)
 	if isinstance(pool, bool):
 		raise Exception("Game over.")
-	for old, new in pool:
-		return old, new
+	return random.choice(pool)
 
 def new_game():
 	color = 'white'
@@ -167,12 +172,13 @@ def new_game():
 	while True:
 		print(">> {0}'s turn".format(color))
 		print_board(board)
-		try:
-			old, new = best_move(board, color)
-			move_piece(board, old, new)
-			color = opposite(color)
-		except:
-			return
+		#try:
+		old, new = best_move(board, color)
+		move_piece(board, old, new)
+		color = opposite(color)
+		#except Exception, msg:
+		#	print(msg)
+		#	return
 
 new_game()
 
