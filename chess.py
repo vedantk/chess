@@ -13,22 +13,13 @@ Todo:
 		BUT if you convert the pawn, there is no clean way to convert
 		it back when you go into fake=False mode
 		you have to deepcopy each time
-
-class board:
-	def __init__(self):
-
-
-	def get_piece(self, pos):
-
-	def set_piece(self, pos):
-
-	def move_piece(self, old, new):
+'''
 
 class game:
 	def __init__(self):
 
+
 	def opposite_color(self, color):
-'''
 
 import random
 from collections import namedtuple, deque
@@ -44,62 +35,65 @@ class posn(namedtuple('Posn', ['row', 'col'])):
 	def __eq__(self, that):
 		return self.row == that.row and self.col == that.col
 
-def new_board():
-	front = ['p'] * 8
-	back = ['r', 'k', 'b', 'Q', 'K', 'b', 'k', 'r']
-	def make_row(template, is_black):
-		color = 'black' if is_black else 'white'
-		return [piece(type=elt, color=color) for elt in template]
-	return [make_row(back if k in (0, 7) else front, k < 2)
+class board:
+	def __init__(self):
+		front = ['p'] * 8
+		back = ['r', 'k', 'b', 'Q', 'K', 'b', 'k', 'r']
+		def make_row(template, is_black):
+			color = 'black' if is_black else 'white'
+			return [piece(type=elt, color=color) for elt in template]
+		self.mat = [make_row(back if k in (0, 7) else front, k < 2) \
 			if k < 2 or k > 5 else [empty] * 8 for k in range(8)]
+		self.kings = {'white': posn(7, 4), 'black': posn(0, 4)}
+		self.draws = {'long': 0, 'three': deque([0, 0, 0], maxlen=3)}
 
-def print_board(board):
-	red = lambda s: '\033[91m' + s + '\033[0m'
-	show = lambda p: p.type if p.color == 'white' else red(p.type)
-	for row in board:
-		print(' '.join([show(elt) for elt in row]))
-	print("-" * 40)
+	def __hash__(self):
+		h = 104729
+		for j, row in enumerate(self.mat):
+			for k, soldier in enumerate(row):
+				h ^= hash((soldier.type, soldier.color, j, k))
+		return h
+
+	def __str__(self):
+		red = lambda s: '\033[91m' + s + '\033[0m'
+		show = lambda p: p.type if p.color == 'white' else red(p.type)
+		for row in board:
+			print(' '.join([show(elt) for elt in row]))
+		print("-" * 40)
+
+	def get_piece(self, pos):
+		return self.mat[pos.row][pos.col]
+
+	def set_piece(self, pos, elt):
+		self.mat[pos.row][pos.col] = elt
+
+	def is_empty(self, pos):
+		return self.get_piece(pos) == empty
+
+	def move_piece(self, old, new):
+		orig = self.get_piece(old)
+		dest = self.get_piece(new)
+		self.set_piece(new, orig)
+		self.set_piece(old, empty)
+		if orig.type == 'K':
+			self.kings[orig.color] = new
+		if orig.type == 'p':
+			end = 0 if orig.color == 'white' else 7
+			if new.row == end:
+				orig.type = 'Q'
+		if dest != empty or orig.type == 'p':
+			self.draws['long'] = 0
+		if dest == empty:
+			self.draws['long'] += 1
+			if draws['long'] >= 50:
+				return 'long'
+		deq = draws['three']
+		deq.append(hash(self))
+		if deq[0] == deq[1] == deq[2]:
+			return 'three'
 
 def in_bounds(pos):
 	return (0 <= pos.row < 8) and (0 <= pos.col < 8)
-
-def get_piece(board, pos):
-	return board[pos.row][pos.col]
-
-def set_piece(board, pos, elt):
-	board[pos.row][pos.col] = elt
-
-def hash_board(board):
-	h = 104729
-	for j, row in enumerate(board):
-		for k, elt in enumerate(row):
-			h ^= hash((elt.type, elt.color, j, k))
-	return h
-
-kings = {'white': posn(7, 4), 'black': posn(0, 4)}
-draws = {'long-draw': 0, 'three-draw': deque([0, 0, 0], maxlen=3)}
-
-def move_piece(board, old, new, fake=False):
-	orig = get_piece(board, old)
-	dest = get_piece(board, new)
-	set_piece(board, new, orig)
-	set_piece(board, old, empty)
-	if orig.type == 'K':
-		kings[orig.color] = new
-	if not fake:
-		if dest != empty or orig.type == 'p':
-			draws['long-draw'] = 0
-		if dest == empty:
-			draws['long-draw'] += 1
-			if draws['long-draw'] >= 50:
-				raise Exception("Long Draw")
-		deq = draws['three-draw']
-		deq.append(hash_board(board))
-		if deq[0] == deq[1] == deq[2]:
-			raise Exception("Three-Move Draw")
-
-def is_empty(board, pos):
-	return get_piece(board, pos) == empty
 
 def delta_moves(board, pos, color, deltas, max_probe):
 	probe = 1
@@ -124,11 +118,11 @@ def move_finder(deltas, max_probe=False):
 		delta_moves(board, pos, color, deltas, max_probe)
 
 def pawn_moves(board, pos, color):
-	delta, dbl_row = (1, 1) if color == 'black' else (-1, 6)
+	delta, dbl = (1, 1) if color == 'black' else (-1, 6)
 	advance = pos + (delta, 0)
 	if in_bounds(advance) and is_empty(board, advance):
 		yield advance
-	if pos.row == dbl_row:
+	if pos.row == dbl:
 		double = pos + (2 * delta, 0)
 		if is_empty(board, double):
 			yield double
@@ -140,9 +134,9 @@ def pawn_moves(board, pos, color):
 
 rook_deltas = (0, -1), (-1, 0), (0, 1), (1, 0)
 bishop_deltas = (-1, -1), (-1, 1), (1, 1), (1, -1)
-queen_deltas = rook_deltas + bishop_deltas
 knight_deltas = (2, -1), (2, 1), (-2, -1), (-2, 1), \
 				(1, 2), (-1, 2), (1, -2), (-1, -2)
+queen_deltas = rook_deltas + bishop_deltas
 
 moves = {
 	'p': pawn_moves,
