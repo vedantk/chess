@@ -86,6 +86,11 @@ def move_piece(board, old, new, fake=False):
 	set_piece(board, old, empty)
 	if orig.type == 'K':
 		kings[orig.color] = new
+	if orig.type == 'p':
+		# Promote pawns to queens when they reach the final row.
+		end = 0 if orig.color == 'white' else 7
+		if new.row == end:
+			set_piece(board, new, piece(type='Q', color=orig.color))
 	if not fake:
 		if dest != empty or orig.type == 'p':
 			draws['long-draw'] = 0
@@ -176,11 +181,12 @@ def potential_moves(board, color):
 	check = in_check(board, color)
 	def free_from_check(pair):
 		old, new = pair
-		orig = get_piece(board, new)
+		old_elt, new_elt = get_piece(board, old), get_piece(board, new)
 		move_piece(board, old, new, fake=True)
 		test = in_check(board, color)
 		move_piece(board, new, old, fake=True)
-		set_piece(board, new, orig)
+		set_piece(board, old, old_elt)
+		set_piece(board, new, new_elt)
 		return not(test)
 	my = list(filter(free_from_check, my))
 	if check:
