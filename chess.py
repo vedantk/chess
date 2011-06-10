@@ -28,10 +28,17 @@ class board:
 		def make_row(template, is_black):
 			color = 'black' if is_black else 'white'
 			return [piece(type=elt, color=color) for elt in template]
-		self.mat = [make_row(back if k in (0, 7) else front, k < 2) \
+		self.mat = [make_row(back if k in (0, 7) else front, k < 2)
 			if k < 2 or k > 5 else [empty] * 8 for k in range(8)]
 		self.kings = {'white': posn(7, 4), 'black': posn(0, 4)}
 		self.draws = {'long': 0, 'three': deque(range(6), maxlen=6)}
+
+	def disp(self):
+		red = lambda s: '\033[91m' + s + '\033[0m'
+		show = lambda p: p.type if p.color == 'white' else red(p.type)
+		for row in self.mat:
+			print(' '.join([show(elt) for elt in row]))
+		print("-" * 40)
 
 	def __hash__(self):
 		h = 104729
@@ -39,13 +46,6 @@ class board:
 			for k, soldier in enumerate(row):
 				h ^= hash((soldier.type, soldier.color, j, k))
 		return h
-
-	def __str__(self):
-		red = lambda s: '\033[91m' + s + '\033[0m'
-		show = lambda p: p.type if p.color == 'white' else red(p.type)
-		for row in board:
-			print(' '.join([show(elt) for elt in row]))
-		print("-" * 40)
 
 	def __getitem__(self, pos):
 		return self.mat[pos.row][pos.col]
@@ -68,19 +68,19 @@ class board:
 			# Promote pawns to queens when they reach the final row.
 			end = 0 if orig.color == 'white' else 7
 			if new.row == end:
-				orig.type = 'Q'
+				self[new] = piece(type='Q', color=orig.color)
 		if dest != empty or orig.type == 'p':
 			# If a capture or pawn advance occurs, delay a long draw.
 			self.draws['long'] = 0
 		else:
 			self.draws['long'] += 1
-			if draws['long'] >= 50:
-				return 'long'
-		deq = draws['three']
+			if self.draws['long'] >= 50:
+				raise Exception('Long Draw')
+		deq = self.draws['three']
 		deq.append(hash(self))
 		if deq[0] == deq[2] == deq[4] or deq[1] == deq[3] == deq[5]:
 			# If three previous states were the same, call a draw.
-			return 'three'
+			raise Exception("Threefold Repetition Draw")
 
 	def all_moves(self, color):
 		# Find all possible moves available to <color>.
@@ -105,7 +105,7 @@ class board:
 def in_bounds(pos):
 	return (0 <= pos.row < 8) and (0 <= pos.col < 8)
 
-def delta_moves(board, pos, color, deltas, max_probe):
+def delta_moves(game, pos, color, deltas, max_probe):
 	probe = 1
 	may_probe = [True] * len(deltas)
 	while any(may_probe) and (not(max_probe) or probe <= max_probe):
@@ -114,7 +114,7 @@ def delta_moves(board, pos, color, deltas, max_probe):
 				continue
 			loc = pos + (rp * probe, cp * probe)
 			if in_bounds(loc):
-				occupant = board[loc]
+				occupant = game[loc]
 				if occupant == empty or occupant.color != color:
 					yield loc
 				if occupant != empty:
@@ -124,22 +124,22 @@ def delta_moves(board, pos, color, deltas, max_probe):
 		probe += 1
 
 def move_finder(deltas, max_probe=False):
-	return lambda board, pos, color: \
-		delta_moves(board, pos, color, deltas, max_probe)
+	return lambda game, pos, color: \
+		delta_moves(game, pos, color, deltas, max_probe)
 
-def pawn_moves(board, pos, color):
+def pawn_moves(game, pos, color):
 	delta, dbl = (1, 1) if color == 'black' else (-1, 6)
 	advance = pos + (delta, 0)
-	if in_bounds(advance) and board.is_empty(advance):
+	if in_bounds(advance) and game.is_empty(advance):
 		yield advance
 	if pos.row == dbl:
 		double = pos + (2 * delta, 0)
-		if board.is_empty(double):
+		if game.is_empty(double):
 			yield double
 	safe = color, empty.color
 	attacks = pos + (delta, -1), pos + (delta, 1)
 	for atk in attacks:
-		if in_bounds(atk) and board[atk].color not in safe:
+		if in_bounds(atk) and game[atk].color not in safe:
 			yield atk
 
 rook_deltas = (0, -1), (-1, 0), (0, 1), (1, 0)
@@ -157,14 +157,18 @@ moves = {
 	'K': move_finder(queen_deltas, max_probe=1),
 }
 
-def potential_moves(board, color):
+def potential_moves(game, color):
 	def available_move(pair):
 		old, new = pair
-		hypo = copy.deepcopy(board)
-		hypo.move_piece(old, new)
+		hypo = copy.deepcopy(game)
+		try:
+			hypo.move_piece(old, new)
+		except Exception as msg:
+			if "draw" not in str(msg).lower():
+				raise Exception("Expected draw but got: " + msg)
 		return not(hypo.in_check(color))
-	check = board.in_check(color)
-	my = list(filter(available_move, board.all_moves(color)))
+	check = game.in_check(color)
+	my = list(filter(available_move, game.all_moves(color)))
 	if check:
 		print("{0} is in check!".format(color))
 	if not len(my):
@@ -172,8 +176,8 @@ def potential_moves(board, color):
 		return check
 	return my
 
-def best_move(board, color):
-	pool = potential_moves(board, color)
+def best_move(game, color):
+	pool = potential_moves(game, color)
 	if isinstance(pool, bool):
 		raise Exception("Game over.")
 	return random.choice(pool)
@@ -182,13 +186,13 @@ def new_game():
 	color = 'white'
 	game = board()
 	while True:
-		print(board)
+		game.disp()
 		print("^^^ {0}'s turn".format(color))
 		try:
-			old, new = best_move(board, color)
-			board.move_piece(old, new)
+			old, new = best_move(game, color)
+			game.move_piece(old, new)
 			color = opposite(color)
-		except Exception, msg:
+		except Exception as msg:
 			print(msg)
 			return
 
