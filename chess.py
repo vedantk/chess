@@ -3,33 +3,9 @@
 '''
 Todo:
 >	Castling
->	Pawn => opponent's back row conversion
->	refactor board and friends into a class
-		if you do this, you can get rid of the hacky fake=True stuff
-		this is really needed when doing pawn upgrades
-		if you're scouting possible moves and a pawn is pushed to the
-		opponent's baseline (with fake=True), then you ought to take
-		the attack benefits of the pawn's transformation into account
-		BUT if you convert the pawn, there is no clean way to convert
-		it back when you go into fake=False mode
-		you have to deepcopy each time
-
-class board:
-	def __init__(self):
-
-
-	def get_piece(self, pos):
-
-	def set_piece(self, pos):
-
-	def move_piece(self, old, new):
-
-class game:
-	def __init__(self):
-
-	def opposite_color(self, color):
 '''
 
+import copy
 import random
 from collections import namedtuple, deque
 
@@ -41,72 +17,96 @@ class posn(namedtuple('Posn', ['row', 'col'])):
 	def __add__(self, that):
 		row, col = that
 		return posn(self.row + row, self.col + col)
+
 	def __eq__(self, that):
 		return self.row == that.row and self.col == that.col
 
-def new_board():
-	front = ['p'] * 8
-	back = ['r', 'k', 'b', 'Q', 'K', 'b', 'k', 'r']
-	def make_row(template, is_black):
-		color = 'black' if is_black else 'white'
-		return [piece(type=elt, color=color) for elt in template]
-	return [make_row(back if k in (0, 7) else front, k < 2)
+class board:
+	def __init__(self):
+		front = ['p'] * 8
+		back = ['r', 'k', 'b', 'Q', 'K', 'b', 'k', 'r']
+		def make_row(template, is_black):
+			color = 'black' if is_black else 'white'
+			return [piece(type=elt, color=color) for elt in template]
+		self.mat = [make_row(back if k in (0, 7) else front, k < 2)
 			if k < 2 or k > 5 else [empty] * 8 for k in range(8)]
+		self.kings = {'white': posn(7, 4), 'black': posn(0, 4)}
+		self.draws = {'long': 0, 'three': deque(range(6), maxlen=6)}
 
-def print_board(board):
-	red = lambda s: '\033[91m' + s + '\033[0m'
-	show = lambda p: p.type if p.color == 'white' else red(p.type)
-	for row in board:
-		print(' '.join([show(elt) for elt in row]))
-	print("-" * 40)
+	def disp(self):
+		red = lambda s: '\033[91m' + s + '\033[0m'
+		show = lambda p: p.type if p.color == 'white' else red(p.type)
+		for row in self.mat:
+			print(' '.join([show(elt) for elt in row]))
+		print("-" * 40)
+
+	def __hash__(self):
+		h = 104729
+		for j, row in enumerate(self.mat):
+			for k, soldier in enumerate(row):
+				h ^= hash((soldier.type, soldier.color, j, k))
+		return h
+
+	def __getitem__(self, pos):
+		return self.mat[pos.row][pos.col]
+
+	def __setitem__(self, pos, elt):
+		self.mat[pos.row][pos.col] = elt
+
+	def is_empty(self, pos):
+		return self[pos] == empty
+
+	def move_piece(self, old, new, fake=False):
+		orig = self[old]
+		dest = self[new]
+		self[new] = orig
+		self[old] = empty
+		if orig.type == 'K':
+			# Keep track of where kings are for quick check detection.
+			self.kings[orig.color] = new
+		if orig.type == 'p':
+			# Promote pawns to queens when they reach the final row.
+			end = 0 if orig.color == 'white' else 7
+			if new.row == end:
+				self[new] = piece(type='Q', color=orig.color)
+		if not fake:
+			if dest != empty or orig.type == 'p':
+				# Captures and pawn advances reset the long draw.
+				self.draws['long'] = 0
+			else:
+				self.draws['long'] += 1
+				if self.draws['long'] >= 50:
+					return 'Long Draw'
+			deq = self.draws['three']
+			deq.append(hash(self))
+			if deq[0] == deq[2] == deq[4] or deq[1] == deq[3] == deq[5]:
+				# If three previous states were the same, call a draw.
+				return 'Threefold Repetition Draw'
+
+	def all_moves(self, color):
+		# Find all possible moves available to <color>.
+		pool = []
+		for k, row in enumerate(self.mat):
+			for j, soldier in enumerate(row):
+				if soldier.color == color:
+					pos = posn(k, j)
+					gen = moves[soldier.type](self, pos, soldier.color)
+					pool.extend([(pos, new) for new in gen if new])
+		return pool
+
+	def in_check(self, color):
+		# Determine if <color> is in check.
+		my_king = self.kings[color]
+		your = self.all_moves(opposite(color))
+		for _, new in your:
+			if new == my_king:
+				return True
+		return False
 
 def in_bounds(pos):
 	return (0 <= pos.row < 8) and (0 <= pos.col < 8)
 
-def get_piece(board, pos):
-	return board[pos.row][pos.col]
-
-def set_piece(board, pos, elt):
-	board[pos.row][pos.col] = elt
-
-def hash_board(board):
-	h = 104729
-	for j, row in enumerate(board):
-		for k, elt in enumerate(row):
-			h ^= hash((elt.type, elt.color, j, k))
-	return h
-
-kings = {'white': posn(7, 4), 'black': posn(0, 4)}
-draws = {'long-draw': 0, 'three-draw': deque([0, 0, 0], maxlen=3)}
-
-def move_piece(board, old, new, fake=False):
-	orig = get_piece(board, old)
-	dest = get_piece(board, new)
-	set_piece(board, new, orig)
-	set_piece(board, old, empty)
-	if orig.type == 'K':
-		kings[orig.color] = new
-	if orig.type == 'p':
-		# Promote pawns to queens when they reach the final row.
-		end = 0 if orig.color == 'white' else 7
-		if new.row == end:
-			set_piece(board, new, piece(type='Q', color=orig.color))
-	if not fake:
-		if dest != empty or orig.type == 'p':
-			draws['long-draw'] = 0
-		if dest == empty:
-			draws['long-draw'] += 1
-			if draws['long-draw'] >= 50:
-				raise Exception("Long Draw")
-		deq = draws['three-draw']
-		deq.append(hash_board(board))
-		if deq[0] == deq[1] == deq[2]:
-			raise Exception("Three-Move Draw")
-
-def is_empty(board, pos):
-	return get_piece(board, pos) == empty
-
-def delta_moves(board, pos, color, deltas, max_probe):
+def delta_moves(game, pos, color, deltas, max_probe):
 	probe = 1
 	may_probe = [True] * len(deltas)
 	while any(may_probe) and (not(max_probe) or probe <= max_probe):
@@ -115,7 +115,7 @@ def delta_moves(board, pos, color, deltas, max_probe):
 				continue
 			loc = pos + (rp * probe, cp * probe)
 			if in_bounds(loc):
-				occupant = get_piece(board, loc)
+				occupant = game[loc]
 				if occupant == empty or occupant.color != color:
 					yield loc
 				if occupant != empty:
@@ -125,29 +125,29 @@ def delta_moves(board, pos, color, deltas, max_probe):
 		probe += 1
 
 def move_finder(deltas, max_probe=False):
-	return lambda board, pos, color: \
-		delta_moves(board, pos, color, deltas, max_probe)
+	return lambda game, pos, color: \
+		delta_moves(game, pos, color, deltas, max_probe)
 
-def pawn_moves(board, pos, color):
-	delta, dbl_row = (1, 1) if color == 'black' else (-1, 6)
+def pawn_moves(game, pos, color):
+	delta, dbl = (1, 1) if color == 'black' else (-1, 6)
 	advance = pos + (delta, 0)
-	if in_bounds(advance) and is_empty(board, advance):
+	if in_bounds(advance) and game.is_empty(advance):
 		yield advance
-	if pos.row == dbl_row:
+	if pos.row == dbl:
 		double = pos + (2 * delta, 0)
-		if is_empty(board, double):
+		if game.is_empty(double):
 			yield double
 	safe = color, empty.color
 	attacks = pos + (delta, -1), pos + (delta, 1)
 	for atk in attacks:
-		if in_bounds(atk) and get_piece(board, atk).color not in safe:
+		if in_bounds(atk) and game[atk].color not in safe:
 			yield atk
 
 rook_deltas = (0, -1), (-1, 0), (0, 1), (1, 0)
 bishop_deltas = (-1, -1), (-1, 1), (1, 1), (1, -1)
-queen_deltas = rook_deltas + bishop_deltas
 knight_deltas = (2, -1), (2, 1), (-2, -1), (-2, 1), \
 				(1, 2), (-1, 2), (1, -2), (-1, -2)
+queen_deltas = rook_deltas + bishop_deltas
 
 moves = {
 	'p': pawn_moves,
@@ -158,37 +158,17 @@ moves = {
 	'K': move_finder(queen_deltas, max_probe=1),
 }
 
-def all_moves(board, color):
-	pool = []
-	for k, row in enumerate(board):
-		for j, elt in enumerate(row):
-			if elt.color == color:
-				pos = posn(k, j)
-				gen = moves[elt.type](board, pos, elt.color)
-				pool.extend([(pos, new) for new in gen if new])
-	return pool
-
-def in_check(board, color):
-	my_king = kings[color]
-	your = all_moves(board, opposite(color))
-	for _, new in your:
-		if new == my_king:
-			return True
-	return False
-
-def potential_moves(board, color):
-	my = all_moves(board, color)
-	check = in_check(board, color)
+def potential_moves(game, color):
 	def free_from_check(pair):
 		old, new = pair
-		old_elt, new_elt = get_piece(board, old), get_piece(board, new)
-		move_piece(board, old, new, fake=True)
-		test = in_check(board, color)
-		move_piece(board, new, old, fake=True)
-		set_piece(board, old, old_elt)
-		set_piece(board, new, new_elt)
+		prev, cur = game[old], game[new]
+		game.move_piece(old, new, fake=True)
+		test = game.in_check(color)
+		game.move_piece(new, old, fake=True)
+		game[old], game[new] = prev, cur
 		return not(test)
-	my = list(filter(free_from_check, my))
+	check = game.in_check(color)
+	my = list(filter(free_from_check, game.all_moves(color)))
 	if check:
 		print("{0} is in check!".format(color))
 	if not len(my):
@@ -196,25 +176,27 @@ def potential_moves(board, color):
 		return check
 	return my
 
-def best_move(board, color):
-	pool = potential_moves(board, color)
+def best_move(game, color):
+	pool = potential_moves(game, color)
 	if isinstance(pool, bool):
 		raise Exception("Game over.")
 	return random.choice(pool)
 
 def new_game():
 	color = 'white'
-	board = new_board()
+	game = board()
 	while True:
-		print(">> {0}'s turn".format(color))
-		print_board(board)
+		game.disp()
+		print("^^^ {0}'s turn".format(color))
 		try:
-			old, new = best_move(board, color)
-			move_piece(board, old, new)
-			color = opposite(color)
-		except Exception, msg:
-			print(msg)
+			old, new = best_move(game, color)
+			status = game.move_piece(old, new)
+			if status:
+				raise Exception(status)
+		except Exception as e:
+			print(e)
 			return
+		color = opposite(color)
 
 new_game()
 
