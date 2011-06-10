@@ -56,7 +56,7 @@ class board:
 	def is_empty(self, pos):
 		return self[pos] == empty
 
-	def move_piece(self, old, new):
+	def move_piece(self, old, new, fake=False):
 		orig = self[old]
 		dest = self[new]
 		self[new] = orig
@@ -69,18 +69,19 @@ class board:
 			end = 0 if orig.color == 'white' else 7
 			if new.row == end:
 				self[new] = piece(type='Q', color=orig.color)
-		if dest != empty or orig.type == 'p':
-			# If a capture or pawn advance occurs, delay a long draw.
-			self.draws['long'] = 0
-		else:
-			self.draws['long'] += 1
-			if self.draws['long'] >= 50:
-				raise Exception('Long Draw')
-		deq = self.draws['three']
-		deq.append(hash(self))
-		if deq[0] == deq[2] == deq[4] or deq[1] == deq[3] == deq[5]:
-			# If three previous states were the same, call a draw.
-			raise Exception("Threefold Repetition Draw")
+		if not fake:
+			if dest != empty or orig.type == 'p':
+				# Captures and pawn advances reset the long draw.
+				self.draws['long'] = 0
+			else:
+				self.draws['long'] += 1
+				if self.draws['long'] >= 50:
+					return 'Long Draw'
+			deq = self.draws['three']
+			deq.append(hash(self))
+			if deq[0] == deq[2] == deq[4] or deq[1] == deq[3] == deq[5]:
+				# If three previous states were the same, call a draw.
+				return 'Threefold Repetition Draw'
 
 	def all_moves(self, color):
 		# Find all possible moves available to <color>.
@@ -158,17 +159,16 @@ moves = {
 }
 
 def potential_moves(game, color):
-	def available_move(pair):
+	def free_from_check(pair):
 		old, new = pair
-		hypo = copy.deepcopy(game)
-		try:
-			hypo.move_piece(old, new)
-		except Exception as msg:
-			if "draw" not in str(msg).lower():
-				raise Exception("Expected draw but got: " + msg)
-		return not(hypo.in_check(color))
+		prev, cur = game[old], game[new]
+		game.move_piece(old, new, fake=True)
+		test = game.in_check(color)
+		game.move_piece(new, old, fake=True)
+		game[old], game[new] = prev, cur
+		return not(test)
 	check = game.in_check(color)
-	my = list(filter(available_move, game.all_moves(color)))
+	my = list(filter(free_from_check, game.all_moves(color)))
 	if check:
 		print("{0} is in check!".format(color))
 	if not len(my):
@@ -190,11 +190,13 @@ def new_game():
 		print("^^^ {0}'s turn".format(color))
 		try:
 			old, new = best_move(game, color)
-			game.move_piece(old, new)
-			color = opposite(color)
-		except Exception as msg:
-			print(msg)
+			status = game.move_piece(old, new)
+			if status:
+				raise Exception(status)
+		except Exception as e:
+			print(e)
 			return
+		color = opposite(color)
 
 new_game()
 
