@@ -5,7 +5,6 @@ Todo:
 >	Castling
 '''
 
-import copy
 import random
 from collections import namedtuple, deque
 
@@ -15,8 +14,7 @@ opposite = lambda color: 'black' if color == 'white' else 'white'
 
 class posn(namedtuple('Posn', ['row', 'col'])):
 	def __add__(self, that):
-		row, col = that
-		return posn(self.row + row, self.col + col)
+		return posn(self.row + that[0], self.col + that[1])
 
 	def __eq__(self, that):
 		return self.row == that.row and self.col == that.col
@@ -33,13 +31,6 @@ class board:
 		self.kings = {'white': posn(7, 4), 'black': posn(0, 4)}
 		self.draws = {'long': 0, 'three': deque(range(6), maxlen=6)}
 
-	def disp(self):
-		red = lambda s: '\033[91m' + s + '\033[0m'
-		show = lambda p: p.type if p.color == 'white' else red(p.type)
-		for row in self.mat:
-			print(' '.join([show(elt) for elt in row]))
-		print("-" * 40)
-
 	def __hash__(self):
 		h = 104729
 		for j, row in enumerate(self.mat):
@@ -52,6 +43,13 @@ class board:
 
 	def __setitem__(self, pos, elt):
 		self.mat[pos.row][pos.col] = elt
+
+	def display(self):
+		red = lambda s: '\033[91m' + s + '\033[0m'
+		show = lambda p: p.type if p.color == 'white' else red(p.type)
+		for row in self.mat:
+			print(' '.join([show(elt) for elt in row]))
+		print("-" * 40)
 
 	def is_empty(self, pos):
 		return self[pos] == empty
@@ -106,12 +104,12 @@ class board:
 def in_bounds(pos):
 	return (0 <= pos.row < 8) and (0 <= pos.col < 8)
 
-def delta_moves(game, pos, color, deltas, max_probe):
+def delta_moves(game, pos, color, deltas, max_probe=False):
 	probe = 1
-	may_probe = [True] * len(deltas)
-	while any(may_probe) and (not(max_probe) or probe <= max_probe):
+	search = [True] * len(deltas)
+	while any(search) and (not(max_probe) or probe <= max_probe):
 		for k, (rp, cp) in enumerate(deltas):
-			if not may_probe[k]:
+			if not search[k]:
 				continue
 			loc = pos + (rp * probe, cp * probe)
 			if in_bounds(loc):
@@ -119,9 +117,9 @@ def delta_moves(game, pos, color, deltas, max_probe):
 				if occupant == empty or occupant.color != color:
 					yield loc
 				if occupant != empty:
-					may_probe[k] = False
+					search[k] = False
 			else:
-				may_probe[k] = False
+				search[k] = False
 		probe += 1
 
 def move_finder(deltas, max_probe=False):
@@ -186,8 +184,6 @@ def new_game():
 	color = 'white'
 	game = board()
 	while True:
-		game.disp()
-		print("^^^ {0}'s turn".format(color))
 		try:
 			old, new = best_move(game, color)
 			status = game.move_piece(old, new)
@@ -195,10 +191,10 @@ def new_game():
 				raise Exception(status)
 		except Exception as e:
 			print(e)
-			return
+			return game.display()
 		color = opposite(color)
 
-new_game()
+# new_game()
 
 '''
 function alphabeta(node, depth, α, β, Player)
@@ -219,3 +215,31 @@ function alphabeta(node, depth, α, β, Player)
 (* Initial call *)
 alphabeta(origin, depth, -infinity, +infinity, MaxPlayer)
 '''
+
+def apply_seq(game, steps, evaluator):
+	# game: board, steps = [(old, new), ...]
+	# evaluator: determine the effect the step had on the game
+	if not len(steps):
+		return []
+	old, new = steps[0]
+	prev, cur = game[old], game[new]
+	game.move_piece(old, new, fake=True)
+	print("{0} => {1}".format(old, new))
+	game.display()
+	scores = [evaluator(game)] + apply_seq(game, steps[1:], evaluator)
+	game.move_piece(new, old, fake=True)
+	game[old], game[new] = prev, cur
+	print("{0} => {1}".format(new, old))
+	game.display()
+	return scores
+
+def test():
+	b = board()
+	s = apply_seq(b, [
+		(posn(0, 0), posn(4, 4)),
+		(posn(1, 1), posn(5, 5)),
+		(posn(7, 7), posn(7, 4)),
+	], hash)
+	print(s)
+
+test()
