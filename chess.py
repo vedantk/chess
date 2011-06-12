@@ -101,6 +101,18 @@ class board:
 				return True
 		return False
 
+	def apply_seq(self, steps, scorer):
+		# Apply, score, and revert <steps = [(old, new), ...]>.
+		if not len(steps):
+			return []
+		old, new = steps[0]
+		prev, cur = self[old], self[new]
+		self.move_piece(old, new, fake=True)
+		scores = [scorer(self)] + self.apply_seq(steps[1:], scorer)
+		self.move_piece(new, old, fake=True)
+		self[old], self[new] = prev, cur
+		return scores
+
 def in_bounds(pos):
 	return (0 <= pos.row < 8) and (0 <= pos.col < 8)
 
@@ -158,13 +170,9 @@ moves = {
 
 def potential_moves(game, color):
 	def free_from_check(pair):
-		old, new = pair
-		prev, cur = game[old], game[new]
-		game.move_piece(old, new, fake=True)
-		test = game.in_check(color)
-		game.move_piece(new, old, fake=True)
-		game[old], game[new] = prev, cur
-		return not(test)
+		return game.apply_seq([pair],
+			lambda state: not(state.in_check(color))
+		)[0]
 	check = game.in_check(color)
 	my = list(filter(free_from_check, game.all_moves(color)))
 	if check:
@@ -194,7 +202,7 @@ def new_game():
 			return game.display()
 		color = opposite(color)
 
-# new_game()
+new_game()
 
 '''
 function alphabeta(node, depth, α, β, Player)
@@ -215,31 +223,3 @@ function alphabeta(node, depth, α, β, Player)
 (* Initial call *)
 alphabeta(origin, depth, -infinity, +infinity, MaxPlayer)
 '''
-
-def apply_seq(game, steps, evaluator):
-	# game: board, steps = [(old, new), ...]
-	# evaluator: determine the effect the step had on the game
-	if not len(steps):
-		return []
-	old, new = steps[0]
-	prev, cur = game[old], game[new]
-	game.move_piece(old, new, fake=True)
-	print("{0} => {1}".format(old, new))
-	game.display()
-	scores = [evaluator(game)] + apply_seq(game, steps[1:], evaluator)
-	game.move_piece(new, old, fake=True)
-	game[old], game[new] = prev, cur
-	print("{0} => {1}".format(new, old))
-	game.display()
-	return scores
-
-def test():
-	b = board()
-	s = apply_seq(b, [
-		(posn(0, 0), posn(4, 4)),
-		(posn(1, 1), posn(5, 5)),
-		(posn(7, 7), posn(7, 4)),
-	], hash)
-	print(s)
-
-test()
