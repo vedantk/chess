@@ -17,7 +17,8 @@ class posn(namedtuple('Posn', ['row', 'col'])):
 		return posn(self.row + that[0], self.col + that[1])
 
 	def __eq__(self, that):
-		return self.row == that.row and self.col == that.col
+		return isinstance(that, posn) and \
+			self.row == that.row and self.col == that.col
 
 class board:
 	def __init__(self):
@@ -25,11 +26,13 @@ class board:
 		back = ['r', 'k', 'b', 'Q', 'K', 'b', 'k', 'r']
 		def make_row(template, is_black):
 			color = 'black' if is_black else 'white'
-			return [piece(type=elt, color=color) for elt in template]
+			return [piece(elt, color) for elt in template]
 		self.mat = [make_row(back if k in (0, 7) else front, k < 2)
 			if k < 2 or k > 5 else [empty] * 8 for k in range(8)]
 		self.kings = {'white': posn(7, 4), 'black': posn(0, 4)}
 		self.draws = {'long': 0, 'three': deque(range(6), maxlen=6)}
+		self.state = 'normal'
+		self.history = [] # [(old/new: posn, orig/dest: piece)]
 
 	def __hash__(self):
 		h = 104729
@@ -54,32 +57,44 @@ class board:
 	def is_empty(self, pos):
 		return self[pos] == empty
 
-	def move_piece(self, old, new, fake=False):
-		orig = self[old]
-		dest = self[new]
-		self[new] = orig
-		self[old] = empty
+	def handle_draws(self, orig, dest):
+		if dest != empty or orig.type == 'p':
+			# Captures and pawn advances reset the long draw.
+			self.draws['long'] = 0
+			return
+		else:
+			self.draws['long'] += 1
+			if self.draws['long'] >= 50:
+				self.state = 'draw'
+				return
+		deq = self.draws['three']
+		deq.append(hash(self))
+		if deq[0] == deq[2] == deq[4] or deq[1] == deq[3] == deq[5]:
+			# If three previous states were the same, call a draw.
+			self.state = 'draw'
+
+	def update_kings(self, orig, new):
 		if orig.type == 'K':
 			# Keep track of where kings are for quick check detection.
 			self.kings[orig.color] = new
+
+	def move_piece(self, old, new, fake=False):
+		orig, dest = self[old], self[new]
+		self[new], self[old] = orig, empty
+		self.update_kings(orig, new)
 		if orig.type == 'p':
 			# Promote pawns to queens when they reach the final row.
 			end = 0 if orig.color == 'white' else 7
 			if new.row == end:
 				self[new] = piece(type='Q', color=orig.color)
 		if not fake:
-			if dest != empty or orig.type == 'p':
-				# Captures and pawn advances reset the long draw.
-				self.draws['long'] = 0
-			else:
-				self.draws['long'] += 1
-				if self.draws['long'] >= 50:
-					return 'Long Draw'
-			deq = self.draws['three']
-			deq.append(hash(self))
-			if deq[0] == deq[2] == deq[4] or deq[1] == deq[3] == deq[5]:
-				# If three previous states were the same, call a draw.
-				return 'Threefold Repetition Draw'
+			self.handle_draws(orig, dest)
+		self.history.append((old, new, orig, dest))
+
+	def undo_move(self):
+		old, new, orig, dest = self.history.pop()
+		self[old], self[new] = orig, dest
+		self.update_kings(orig, old)
 
 	def all_moves(self, color):
 		# Find all possible moves available to <color>.
@@ -100,18 +115,6 @@ class board:
 			if new == my_king:
 				return True
 		return False
-
-	def apply_seq(self, steps, scorer):
-		# Apply, score, and revert <steps = [(old, new), ...]>.
-		if not len(steps):
-			return []
-		old, new = steps[0]
-		prev, cur = self[old], self[new]
-		self.move_piece(old, new, fake=True)
-		scores = [scorer(self)] + self.apply_seq(steps[1:], scorer)
-		self.move_piece(new, old, fake=True)
-		self[old], self[new] = prev, cur
-		return scores
 
 def in_bounds(pos):
 	return (0 <= pos.row < 8) and (0 <= pos.col < 8)
@@ -170,37 +173,40 @@ moves = {
 
 def potential_moves(game, color):
 	def free_from_check(pair):
-		return game.apply_seq([pair],
-			lambda state: not(state.in_check(color))
-		)[0]
+		old, new = pair
+		game.move_piece(old, new, fake=True)
+		test = not(game.in_check(color))
+		game.undo_move()
+		return test
 	check = game.in_check(color)
 	my = list(filter(free_from_check, game.all_moves(color)))
 	if check:
 		print("{0} is in check!".format(color))
 	if not len(my):
-		print("{0} loses...".format(color) if check else "Draw.")
+		game.state = 'done' if check else 'draw'
+		if check:
+			print("{0} loses...".format(color))
 		return check
 	return my
 
 def best_move(game, color):
 	pool = potential_moves(game, color)
 	if isinstance(pool, bool):
-		raise Exception("Game over.")
+		return pool, None
 	return random.choice(pool)
 
 def new_game():
 	color = 'white'
 	game = board()
-	while True:
-		try:
-			old, new = best_move(game, color)
-			status = game.move_piece(old, new)
-			if status:
-				raise Exception(status)
-		except Exception as e:
-			print(e)
-			return game.display()
-		color = opposite(color)
+	while game.state == 'normal':
+		lhs, rhs = best_move(game, color)
+		if rhs == None:
+			break
+		else:
+			game.move_piece(lhs, rhs)
+			color = opposite(color)
+	game.display()
+	print(game.state)
 
 new_game()
 
