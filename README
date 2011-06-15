@@ -1,0 +1,5 @@
+vedantk/chess - a small chess program for Python
+
+I plan on using an alphabeta search that relies on a scoring function trained by an evolutionary algorithm.
+
+I hope to keep the code simple and readable. Let me know if something I'm doing is unclear.
