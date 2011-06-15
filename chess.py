@@ -6,6 +6,7 @@ Todo:
 '''
 
 import random
+from functools import reduce
 from collections import namedtuple, deque
 
 piece = namedtuple('Piece', ['type', 'color'])
@@ -34,12 +35,13 @@ class board:
 		self.state = 'normal'
 		self.history = [] # [(old/new: posn, orig/dest: piece)]
 
-	def __hash__(self):
-		h = 104729
+	def foreach(self):
 		for j, row in enumerate(self.mat):
 			for k, soldier in enumerate(row):
-				h ^= hash((soldier.type, soldier.color, j, k))
-		return h
+				yield j, k, soldier
+
+	def __hash__(self):
+		return reduce(lambda v, e: v ^ hash(e), self.foreach(), 1007)
 
 	def __getitem__(self, pos):
 		return self.mat[pos.row][pos.col]
@@ -99,12 +101,11 @@ class board:
 	def all_moves(self, color):
 		# Find all possible moves available to <color>.
 		pool = []
-		for k, row in enumerate(self.mat):
-			for j, soldier in enumerate(row):
-				if soldier.color == color:
-					pos = posn(k, j)
-					gen = moves[soldier.type](self, pos, soldier.color)
-					pool.extend([(pos, new) for new in gen if new])
+		for j, k, soldier in self.foreach():
+			if soldier.color == color:
+				pos = posn(j, k)
+				gen = moves[soldier.type](self, pos, soldier.color)
+				pool.extend([(pos, new) for new in gen if new])
 		return pool
 
 	def in_check(self, color):
