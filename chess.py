@@ -128,7 +128,7 @@ class board:
 		check = self.in_check(color)
 		my = list(filter(free_from_check, self.all_moves(color)))
 		if not len(my):
-			self.state = 'done' if check else 'draw'
+			self.state = '{0} lost'.format(color) if check else 'draw'
 			return not(check)
 		return my
 
@@ -139,7 +139,7 @@ class board:
 		pool = self.potential_moves(color)
 		if isinstance(pool, bool):
 			# If the game will end in checkmate...
-			value = 1000 if pool else -1000
+			value = 10000 if pool else -10000
 			return factor * value, None
 		elif not depth or not len(pool):
 			# If we hit the depth limit or reach a draw...
@@ -156,7 +156,7 @@ class board:
 		if is_max:
 			for v, move in generate_scores():
 				if v >= beta:
-					return beta, move
+					return beta, best
 				if v > alpha:
 					alpha = v
 					best = move
@@ -164,16 +164,17 @@ class board:
 		else:
 			for v, move in generate_scores():
 				if v <= alpha:
-					return alpha, move
+					return alpha, best
 				if v < beta:
 					beta = v
 					best = move
 			return beta, best
 
 	def best_move(self, color):
-		difficulty = 4
+		difficulty = 2
 		self.maxplayer = color
-		score, move = self.alphabeta(difficulty, -1000, 1000, True)
+		inf = float('inf')
+		score, move = self.alphabeta(difficulty, -inf, inf, True)
 		if not move:
 			return score < 0, None
 		else:
@@ -241,16 +242,15 @@ def new_game():
 		lhs, rhs = game.best_move(color)
 		if rhs:
 			game.move_piece(lhs, rhs)
-			game.display() #!
 			color = opposite(color)
 	game.display()
 	print(game.state)
 
 def score(game, color):
 	points = 0
-	values = {'p': 4, 'k': 3, 'b': 4, 'r': 6, 'Q': 10, 'K': 50, ' ': 0}
+	pts = {'p': 10, 'k': 35, 'b': 40, 'r': 100, 'Q': 300, 'K': 500, ' ': 0}
 	for j, k, elt in game.foreach():
-		points += (1 if elt.color == color else -1) * values[elt.type]
+		points += (1 if elt.color == color else -1) * pts[elt.type]
 	return points
 
 new_game()
